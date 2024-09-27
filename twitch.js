@@ -1,4 +1,4 @@
-const { transform } = require("./index")
+const { transform } = require("./transform")
 const { rewardName } = require("./settings")
 
 const { ApiClient } = require("@twurple/api")
@@ -54,8 +54,15 @@ async function rewardRedeemed(rew) {
   if (!match) return
 
   // Trigger a transformation!
-  transform()
+  await transform()
 }
+
+// Testing without having to buy Twitch rewards
+/* setTimeout(async () => {
+  console.time("bwah..")
+  await transform()
+  console.timeEnd("bwah..")
+}, 5_000) */
 
 connectTwitch()
 
