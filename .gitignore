@@ -1,0 +1,34 @@
+# Package manager files
+package-lock.json
+node_modules/
+yarn.lock
+pnpm-lock.yaml
+
+# Builds
+bin/
+dist
+*.zip
+
+# Security
+.env
+
+# Logs and other temporary files
+.bak
+.tmp
+logs
+*.log
+.DS_Store
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+src/version.json
+
+# IDE files
+.idea
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/extensions.json
