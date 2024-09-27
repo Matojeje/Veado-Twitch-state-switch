@@ -1,30 +1,33 @@
+require("dotenv").config()
+
 const fs = require("fs")
 const { join } = require("path")
 const WebSocket = require("isomorphic-ws")
 
-// Settings
-let clientName = "puppy experiment"
-let showDebugMessages = false
+const { ApiClient } = require('@twurple/api')
+const { StaticAuthProvider } = require("@twurple/auth")
+const { EventSubWsListener } = require('@twurple/eventsub-ws')
+
+const { clientName, showDebugMessages, rewardName, stateExclude } = require("./settings")
+
+/* ===================== Veadotube ===================== */
+
+let veadotubeConnected = false
+/** @type {VeadoState[]} */ let veadoStates = []
 
 /**
  * @typedef {{
- *   name: string,
- *   time: number,
- *   server: string,
- *   address: string,
- *   filetime: number,
- *   filename: string,
+ *   name: string, time: number, server: string,
+ *   address: string, filetime: number, filename: string,
  * }} Instance
  * 
  * @typedef {{
- *   time: number,
+ *   time: number, data?: object | string,
  *   event?: WebSocket.MessageEvent,
- *   data?: object | string,
  * }} SavedMessageWS
  * 
  * @typedef {{
- *   id: string,
- *   name: string,
+ *   id: string, name: string,
  * }} VeadoState
  */
 
@@ -32,75 +35,42 @@ const instances = getVeadoInstances(clientName)
 
 switch (instances.length) {
   case 0:
-    console.warn("No instances running, bye!")
+    console.warn("No Veadotube instances running, bye!")
     process.exit(0)
   
-  case 1:
-    break
+  case 1: break
   
   default:
-    console.info("Found", instances.length, "instances, choosing newest one")
-    break
+    console.info("Found", instances.length, "veadotube instances, choosing newest one"); break
 }
 
 showDebugMessages && console.debug("Connecting to", instances[0].name, instances[0].server)
 
-const ws = new WebSocket(instances[0].address)
+const veado = new WebSocket(instances[0].address)
 
 /** @type {SavedMessageWS} */
-let latestMessage = {
-  time: Date.now()
+let latestVeadoMsg = { time: Date.now() }
+
+veado.onopen = async function open() {
+  veadotubeConnected = true
+  console.info("Connected to", instances[0].name)
+
+  // Start connecting to Twitch at the same time
+  connectTwitch()
+
+  // Read avatar states
+  veadoSendMessage({event: "list"})
+  veadoStates = ( await veadoWaitForResponse() ).data.payload.states
+  console.log("States:", veadoStates)
 }
 
-ws.onopen = async function open() {
-  console.log("Connected")
-
-  // Request avatar states
-  sendMessage({event: "list"})
-  /** @type {VeadoState[]} */
-  const states = ( await waitForResponse() ).data.payload.states
-  console.log("States:", states)
-
-  // Demo: get current state
-  sendMessage({event: "peek"})
-  /** @type {string} */
-  const currentStateID = ( await waitForResponse() ).data.payload.state // Returns state ID
-  const currentState = states.find(state => state.id == currentStateID)
-  console.info("The current state is", currentState)
-
-  // Demo: change to a random state every 3 seconds
-  
-  console.info("I'll now change the state every 3 seconds to demonstrate")
-  setInterval(randomState, 3_000)
-
-  function randomState() {
-    /** @type {VeadoState} */
-    const chosenState = sample(states)
-    console.debug("New state:", chosenState)
-    sendMessage({event: "set", state: chosenState.id})
-  }
-
-  // Helper functions ------------------------------------
-
-  async function waitForResponse() { return watchVariable(() => latestMessage, latestMessage) }
-
-  function sendMessage(payloadObject={}, channel="nodes") {
-    const message = JSON.stringify({
-      event: "payload",
-      type: "stateEvents",
-      id: "mini",
-      payload: payloadObject,
-    })
-    
-    ws.send(channel + ":" + message)
-  }
+veado.onclose = function close() {
+  veadotubeConnected = false
+  console.info("Disconnected from", instances[0].name, "- stopping program")
+  process.exit(0)
 }
 
-ws.onclose = function close() {
-  console.log("Disconnected")
-}
-
-ws.onmessage = function incoming( /**@type {WebSocket.MessageEvent}*/ msg ) {
+veado.onmessage = function incoming ( /**@type {WebSocket.MessageEvent}*/ msg ) {
   const now = Date.now()
   const data = msg.data.toString().split("\0")[0] // Strip everything after a null byte is encountered
 
@@ -117,7 +87,7 @@ ws.onmessage = function incoming( /**@type {WebSocket.MessageEvent}*/ msg ) {
     showDebugMessages && console.dir(parsedMessage,
       { showHidden: false, depth: null, maxArrayLength: null, maxStringLength: null }
     )
-    latestMessage = {
+    latestVeadoMsg = {
       time: now,
       data: parsedMessage,
       event: msg,
@@ -125,13 +95,101 @@ ws.onmessage = function incoming( /**@type {WebSocket.MessageEvent}*/ msg ) {
   } catch (err) {
     console.warn("Error parsing message as JSON, using raw data instead")
     showDebugMessages && console.debug("→", channel, message)
-    latestMessage = {
+    latestVeadoMsg = {
       time: now,
       data: message,
       event: msg,
     }
   }
 }
+
+async function veadoWaitForResponse() { return watchVariable(() => latestVeadoMsg, latestVeadoMsg) }
+
+function veadoSendMessage(payloadObject={}, channel="nodes") {
+  const message = JSON.stringify({
+    event: "payload",
+    type: "stateEvents",
+    id: "mini",
+    payload: payloadObject,
+  })
+  
+  veado.send(channel + ":" + message)
+}
+
+async function getCurrentState() {
+  veadoSendMessage({event: "peek"})
+  /** @type {string} */
+  const currentStateID = ( await veadoWaitForResponse() ).data.payload.state // Returns state ID
+  const currentState = veadoStates.find(state => state.id == currentStateID)
+  showDebugMessages && console.debug("The current state is", currentState)
+  return currentState
+}
+
+async function randomState() {
+  let currentState = await getCurrentState()
+  const statePool = structuredClone(veadoStates).filter(s => !checkStateExcluded(s.name, [currentState?.name]))
+  showDebugMessages && console.debug("State random pool:", statePool)
+  /** @type {VeadoState} */
+  const chosenState = sample(statePool)
+  console.debug("New state:", chosenState)
+  veadoSendMessage({event: "set", state: chosenState.id})
+}
+
+/** Returns `true` if the given state should be excluded */
+function checkStateExcluded(stateName="", extraStatesToExclude=[]) {
+  return [...stateExclude, ...extraStatesToExclude].map(normalize).includes(normalize(stateName))
+}
+
+const normalize = (string="") => string.trim().toLowerCase()
+
+/* ===================== Twitch ===================== */
+
+/** @type {undefined | string} */
+let twitchUserID
+/** @type {undefined | import("@twurple/api").HelixCustomReward} */
+let twitchReward
+
+console.debug("Logging into Twitch. If you crash here, reauthenticate yourself using the link in readme.md")
+const authProvider = new StaticAuthProvider(process.env.twitch_client_id ?? "", process.env.twitch_oauth_token  ?? "")
+const apiClient = new ApiClient({ authProvider })
+const twitchListener = new EventSubWsListener({ apiClient })
+
+async function connectTwitch() {
+  twitchUserID = (await authProvider.getAnyAccessToken()).userId
+	if (!twitchUserID) throw new Error("Couldn't find your user ID based on the Twitch token")
+  const user = await apiClient.users.getUserById(twitchUserID)
+  
+  console.info("Logged into Twitch as", user?.displayName, `(${user?.broadcasterType || "regular user"}): #` + user?.id)
+  
+  const rewards = await apiClient.channelPoints.getCustomRewards(twitchUserID)
+
+  twitchReward = rewards.find(r => normalize(r.title).includes(normalize(rewardName)))
+  if (!twitchReward) console.warn(`Couldn't find reward "${rewardName}".\nAvailable rewards are: ${rewards.map(r => `"${r.title}"`).join(", ")}\nI'll still let you know about all redeems, but nothing will happen.`)
+
+  twitchListener.start()
+  twitchListener.onChannelRedemptionAdd(twitchUserID, rewardRedeemed)
+}
+
+const player = new (require("cli-sound")).Player
+
+/** @param {import("@twurple/eventsub-base").EventSubChannelRedemptionAddEvent} rew */
+async function rewardRedeemed(rew) {
+  // Check if this is the reward we're looking for
+  const match = rew.rewardId == twitchReward?.id
+  console.info(`Reward redeemed: ${rew.rewardTitle} (${rew.rewardCost} pts) by ${rew.userDisplayName}.`, match ? "Triggering your TF..." : "Ignoring this reward")
+  if (!match) return
+
+  // Change the state to a random one
+  randomState()
+
+  // Wait, it's that simple??
+  // Huh..
+  // Okay, gonna play a sound at least
+
+  player.play("./transform.wav", { volume: 0.1 })
+}
+
+/* ===================== Helper functions ===================== */
 
 /**
  * Returns currently running Veadotube Mini instances, sorted newest first

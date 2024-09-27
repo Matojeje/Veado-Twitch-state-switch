@@ -1,0 +1,1 @@
+Please go [here](https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=c7zjv0r19s41ammp4fqecs50b6nksw&redirect_uri=https://telegra.ph/Auth-done-09-15&scope=channel%3Aread%3Aredemptions) to connect this program to your Twitch account
