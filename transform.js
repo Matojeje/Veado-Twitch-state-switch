@@ -9,8 +9,8 @@ if (soundEnabled) player.play(soundName, { volume: 0 })
 
 // TF function
 async function transform() {
-  await randomState()
   if (soundEnabled) player.play(soundName, { volume: soundVolume })
+  await randomState()
 }
 
 module.exports = { transform }

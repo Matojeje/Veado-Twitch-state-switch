@@ -27,17 +27,20 @@ exports.rewardName          = "Transform me"
 
 // Veadotube settings
 
+/** @type {string}          Name of the state to use for TF transitions, leave empty to disable */
+exports.transitionState     = "Poof"
+
+/** @type {number}          How long to show the transition for, in ms */
+exports.transitionDuration  = 600
+
 /** @type {string}          Any name for this program, might show up in Veadotube */
 exports.clientName          = "puppy experiment"
 
 /** @type {string[]}        Veadotube states to blacklist from the random picker */
-exports.stateExcludeCustom  = ["Ignored state example", "Idle"]
+exports.stateExcludeCustom  = ["Ignored state example", "Idle", "Poof"]
 
 /** @type {boolean}         Only switch between states with the same suffix */
 exports.stateMatchLast      = true
 
 /** @type {string}          Separator that marks the suffix in your state names */
 exports.stateSeparator      = "-"
-
-/** @type {boolean}         Ignore states that don't have that separator */
-exports.ignoreNoSeparator   = true

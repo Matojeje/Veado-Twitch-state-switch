@@ -2,7 +2,7 @@ const fs = require("fs")
 const { join } = require("path")
 const WebSocket = require("isomorphic-ws")
 
-const { clientName, showDebugMessages, stateExcludeCustom, stateMatchLast, stateSeparator, ignoreNoSeparator } = require("./settings")
+const { clientName, showDebugMessages, stateExcludeCustom, stateMatchLast, stateSeparator, transitionState, transitionDuration } = require("./settings")
 
 /**
  * @typedef {{
@@ -135,7 +135,20 @@ async function randomState() {
   /** @type {VeadoState} */
   const chosenState = sample(statePool)
   showDebugMessages ? console.debug("New state:", chosenState) : console.info("New state:", chosenState.name)
+
+  // Quick hacky transition logic
+
+  /** @type {VeadoState | undefined} */
+  const transition = veadoStates.find(x => x.name == transitionState)
+  if (transition) {
+    veadoSendMessage({event: "set", state: transition.id})
+    await sleep(transitionDuration)
+  } else if (transitionState != "") {
+    console.warn(`Couldn't find transition state "${transitionState}" in your Veadotube`)
+  }
+
   veadoSendMessage({event: "set", state: chosenState.id})
+
 }
 
 /** Returns `true` if the given state should be excluded */
@@ -201,6 +214,9 @@ function getVeadoInstances(clientName="JS") {
 
 /** Normalize a string for comparison purposes */
 const normalize = (string="") => string.trim().toLocaleLowerCase()
+
+/** Async delay @url https://stackoverflow.com/a/39914235/11933690 */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 
 /**
