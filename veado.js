@@ -35,7 +35,7 @@ switch (instances.length) {
     console.info("Found", instances.length, "veadotube instances, choosing newest one"); break
 }
 
-showDebugMessages && console.debug("Connecting to", instances[0].name, instances[0].server)
+debug("Connecting to", instances[0].name, instances[0].server)
 
 const veado = new WebSocket(instances[0].address)
 
@@ -48,8 +48,7 @@ veado.onopen = async function open() {
   console.info("Connected to", instances[0].name)
 
   // Read avatar states
-  veadoSendMessage({event: "list"})
-  veadoStates = ( await veadoWaitForResponse() ).data.payload.states
+  await refreshStates()
   console.log("States:", veadoStates)
 }
 
@@ -72,7 +71,7 @@ veado.onmessage = function incoming ( /**@type {WebSocket.MessageEvent}*/ msg ) 
   // Parse message
   try {
     const parsedMessage = JSON.parse(message)
-    showDebugMessages && console.debug("→", channel)
+    debug("→", channel)
     showDebugMessages && console.dir(parsedMessage,
       { showHidden: false, depth: null, maxArrayLength: null, maxStringLength: null }
     )
@@ -83,7 +82,7 @@ veado.onmessage = function incoming ( /**@type {WebSocket.MessageEvent}*/ msg ) 
     }
   } catch (err) {
     console.warn("Error parsing message as JSON, using raw data instead")
-    showDebugMessages && console.debug("→", channel, message)
+    debug("→", channel, message)
     latestVeadoMsg = {
       time: now,
       data: message,
@@ -105,51 +104,82 @@ function veadoSendMessage(payloadObject={}, channel="nodes") {
   veado.send(channel + ":" + message)
 }
 
+async function refreshStates() {
+  veadoSendMessage({ event: "list" })
+  /** @type {VeadoState[]} */
+  const response = (await veadoWaitForResponse()).data.payload.states
+  veadoStates = response // Also save globally
+  return response
+}
+
 async function getCurrentState() {
   veadoSendMessage({event: "peek"})
   /** @type {string} */
   const currentStateID = ( await veadoWaitForResponse() ).data.payload.state // Returns state ID
   const currentState = veadoStates.find(state => state.id == currentStateID)
-  showDebugMessages && console.debug("The current state is", currentState)
+  debug("The current state is", currentState)
   return currentState
+}
+
+/**
+ * If there are multiple states with the same name, it picks a random one
+ */
+async function getStateByName(name="") {
+  const availableStates = await refreshStates()
+  const matchingStates = availableStates.filter(x => x.name == name)
+
+  switch (matchingStates.length) {
+    case 0: return null
+    case 1: return matchingStates[0]
+    default: return sample(matchingStates)
+  }
+}
+
+function setState(id="") {
+  veadoSendMessage({event: "set", state: id})
+}
+
+async function setStateByName(name="") {
+  const foundState = await getStateByName(name)
+  if (foundState) setState(foundState.id)
+  return foundState
 }
 
 async function randomState() {
   let currentState = await getCurrentState()
   const currentStateName = currentState?.name ?? ""
   let statePool = structuredClone(veadoStates).filter(s => !checkStateExcluded(s.name, currentStateName))
-  showDebugMessages && console.debug("State pool after removing excluded states:", statePool)
+  debug("State pool after removing excluded states:", statePool)
 
   if (stateMatchLast) {
     const suffix = currentStateName.split(stateSeparator ?? " ").slice(-1)[0]
-    showDebugMessages && console.debug(`Suffix matching is enabled, filtering for names ending with "${suffix}"`)
+    debug(`Suffix matching is enabled, filtering for names ending with "${suffix}"`)
 
     statePool = statePool.filter(s => s.name.endsWith(suffix))
-    showDebugMessages && console.debug("Filtered state pool:", statePool)
+    debug("Filtered state pool:", statePool)
   }
   
   if (statePool.length == 0) {
     return console.warn("After filtering, there were no states left to pick from. Aborting transformation")
   }
 
-  /** @type {VeadoState} */
   const chosenState = sample(statePool)
   showDebugMessages ? console.debug("New state:", chosenState) : console.info("New state:", chosenState.name)
 
   // Quick hacky transition logic
 
-  /** @type {VeadoState | undefined} */
-  const transition = veadoStates.find(x => x.name == transitionState)
+  const transition = await getStateByName(transitionState)
   if (transition) {
-    veadoSendMessage({event: "set", state: transition.id})
+    setState(transition.id)
     await sleep(transitionDuration)
   } else if (transitionState != "") {
     console.warn(`Couldn't find transition state "${transitionState}" in your Veadotube`)
   }
 
-  veadoSendMessage({event: "set", state: chosenState.id})
+  setState(chosenState.id)
 
 }
+
 
 /** Returns `true` if the given state should be excluded */
 function checkStateExcluded(stateNameToCheck="", currentStateName="", extraStatesToExclude=[]) {
@@ -160,12 +190,11 @@ function checkStateExcluded(stateNameToCheck="", currentStateName="", extraState
   ].map(normalize).includes(normalize(stateNameToCheck))
 }
 
-exports.getVeadoInstances = getVeadoInstances
-exports.getCurrentState = getCurrentState
-exports.randomState = randomState
-exports.instances = instances
-exports.veadotubeConnected = veadotubeConnected
-exports.veadoStates = veadoStates
+module.exports = {
+  getVeadoInstances, getCurrentState,   getStateByName,    setStateByName,
+  refreshStates,     randomState,       setState,
+  instances,         veadoStates,       veadotubeConnected,
+}
 
 /**
  * Returns currently running Veadotube Mini instances, sorted newest first
@@ -216,15 +245,18 @@ function getVeadoInstances(clientName="JS") {
 const normalize = (string="") => string.trim().toLocaleLowerCase()
 
 /** Async delay @url https://stackoverflow.com/a/39914235/11933690 */
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+/** Print debug message if it's enabled in settings */
+function debug(...args) { showDebugMessages && console.debug(...args) }
 
 
 /**
  * Returns a random item from a given array
  * @url https://stackoverflow.com/a/5915122/11933690
- * @param {any[]} array
+ * @template T @param {T[]} [array=[]] @returns {T}
  */
-function sample(array) {
+function sample(array=[]) {
   const index = Math.floor( Math.random() * array.length )
   return array[index]
 }
