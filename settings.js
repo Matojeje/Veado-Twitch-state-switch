@@ -24,6 +24,7 @@ exports.weights = [
       "Pooltoy": 1,
       "Gummy": 0.5,
     }
+  },
 ]
 
 
