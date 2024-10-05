@@ -2,7 +2,8 @@ const fs = require("fs")
 const { join } = require("path")
 const WebSocket = require("isomorphic-ws")
 
-const { clientName, showDebugMessages, stateExcludeCustom, stateMatchLast, stateSeparator, transitionState, transitionDuration } = require("./settings")
+const { clientName, transitionDuration } = require("./settings")
+const { debug, debugDir, sample } = require("./helper")
 
 /**
  * @typedef {{
@@ -72,9 +73,7 @@ veado.onmessage = function incoming ( /**@type {WebSocket.MessageEvent}*/ msg ) 
   try {
     const parsedMessage = JSON.parse(message)
     debug("→", channel)
-    showDebugMessages && console.dir(parsedMessage,
-      { showHidden: false, depth: null, maxArrayLength: null, maxStringLength: null }
-    )
+    debugDir(parsedMessage)
     latestVeadoMsg = {
       time: now,
       data: parsedMessage,
@@ -116,6 +115,7 @@ async function getCurrentState() {
   veadoSendMessage({event: "peek"})
   /** @type {string} */
   const currentStateID = ( await veadoWaitForResponse() ).data.payload.state // Returns state ID
+  /** @type {VeadoState} */ // @ts-ignore
   const currentState = veadoStates.find(state => state.id == currentStateID)
   debug("The current state is", currentState)
   return currentState
@@ -145,55 +145,9 @@ async function setStateByName(name="") {
   return foundState
 }
 
-async function randomState() {
-  let currentState = await getCurrentState()
-  const currentStateName = currentState?.name ?? ""
-  let statePool = structuredClone(veadoStates).filter(s => !checkStateExcluded(s.name, currentStateName))
-  debug("State pool after removing excluded states:", statePool)
-
-  if (stateMatchLast) {
-    const suffix = currentStateName.split(stateSeparator ?? " ").slice(-1)[0]
-    debug(`Suffix matching is enabled, filtering for names ending with "${suffix}"`)
-
-    statePool = statePool.filter(s => s.name.endsWith(suffix))
-    debug("Filtered state pool:", statePool)
-  }
-  
-  if (statePool.length == 0) {
-    return console.warn("After filtering, there were no states left to pick from. Aborting transformation")
-  }
-
-  const chosenState = sample(statePool)
-  showDebugMessages ? console.debug("New state:", chosenState) : console.info("New state:", chosenState.name)
-
-  // Quick hacky transition logic
-
-  const transition = await getStateByName(transitionState)
-  if (transition) {
-    setState(transition.id)
-    await sleep(transitionDuration)
-  } else if (transitionState != "") {
-    console.warn(`Couldn't find transition state "${transitionState}" in your Veadotube`)
-  }
-
-  setState(chosenState.id)
-
-}
-
-
-/** Returns `true` if the given state should be excluded */
-function checkStateExcluded(stateNameToCheck="", currentStateName="", extraStatesToExclude=[]) {
-  return [ // Funky syntactic sugar time
-    ...(stateExcludeCustom ?? []),
-    ...extraStatesToExclude,
-    currentStateName
-  ].map(normalize).includes(normalize(stateNameToCheck))
-}
-
 module.exports = {
-  getVeadoInstances, getCurrentState,   getStateByName,    setStateByName,
-  refreshStates,     randomState,       setState,
-  instances,         veadoStates,       veadotubeConnected,
+  getVeadoInstances, getCurrentState, getStateByName, setState,  veadotubeConnected,
+  refreshStates,     setStateByName,  parseStateName, instances, veadoStates
 }
 
 /**
@@ -241,26 +195,19 @@ function getVeadoInstances(clientName="JS") {
 
 /* ===================== Helper functions ===================== */
 
-/** Normalize a string for comparison purposes */
-const normalize = (string="") => string.trim().toLocaleLowerCase()
-
-/** Async delay @url https://stackoverflow.com/a/39914235/11933690 */
-const sleep = ms => new Promise(r => setTimeout(r, ms))
-
-/** Print debug message if it's enabled in settings */
-function debug(...args) { showDebugMessages && console.debug(...args) }
-
-
 /**
- * Returns a random item from a given array
- * @url https://stackoverflow.com/a/5915122/11933690
- * @template T @param {T[]} [array=[]] @returns {T}
+ * Splits up a state name into named chunks
+ * @typedef { {valid:boolean, type?:string, modifier?:string, activity?:string}} ParsedName
+ * @returns {ParsedName}
  */
-function sample(array=[]) {
-  const index = Math.floor( Math.random() * array.length )
-  return array[index]
+function parseStateName(name="") {
+  const pattern = /^(?<type>\w+)-(?<modifier>\w+)-(?<activity>\w+)$/
+  const result = pattern.exec(name)
+  // @ts-ignore
+  return !!result
+    ? { valid: true, ...result.groups }
+    : { valid: false }
 }
-
 
 /**
  * Waits for a variable to change and returns it, or times out

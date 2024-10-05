@@ -1,3 +1,32 @@
+
+/**
+ * List of species, modifiers and weights.
+ * Things not listed here won't be included in the random picker.
+ * You can include things that don't exist in veadotube yet - they'll be automatically excluded.
+ * The weights will be automatically adjusted to add up to 100%
+ * 
+ * @typedef {{
+*   name: string,
+*   weight: number,
+*   modifiers: {[modifier: string]: number},
+* }} Species
+* 
+* @type {Species[]}
+*/
+
+exports.weights = [
+  {
+    name: "Pichu",
+    weight: 1,
+    modifiers: {
+      "Base": 2,
+      "Plush": 1,
+      "Pooltoy": 1,
+      "Gummy": 0.5,
+    }
+]
+
+
 // Main settings
 
 /** @type {boolean}         Would you like me to be extra yappy? */
@@ -27,20 +56,8 @@ exports.rewardName          = "Transform me"
 
 // Veadotube settings
 
-/** @type {string}          Name of the state to use for TF transitions, leave empty to disable */
-exports.transitionState     = "Poof"
-
-/** @type {number}          How long to show the transition for, in ms */
+/** @type {number}          How long to show the transition for, in milliseconds (set to 0 to disable transitions) */
 exports.transitionDuration  = 600
 
-/** @type {string}          Any name for this program, might show up in Veadotube */
+/** @type {string}          Optional name for this program, might show up in Veadotube */
 exports.clientName          = "puppy experiment"
-
-/** @type {string[]}        Veadotube states to blacklist from the random picker */
-exports.stateExcludeCustom  = ["Ignored state example", "Idle", "Poof"]
-
-/** @type {boolean}         Only switch between states with the same suffix */
-exports.stateMatchLast      = true
-
-/** @type {string}          Separator that marks the suffix in your state names */
-exports.stateSeparator      = "-"

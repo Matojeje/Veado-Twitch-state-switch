@@ -1,4 +1,5 @@
-const { transform } = require("./transform")
+const { normalize } = require("./helper")
+const { transform, transformType } = require("./transform")
 const { rewardName } = require("./settings")
 
 const { ApiClient } = require("@twurple/api")
@@ -15,9 +16,6 @@ let twitchReward = undefined
 
 /** @type {null | import("@twurple/api").HelixUser} */
 let twitchUser = null
-
-/** Normalize a string for comparison purposes */
-const normalize = (string="") => string.trim().toLocaleLowerCase()
 
 // ===============================================================
 
@@ -54,7 +52,7 @@ async function rewardRedeemed(rew) {
   if (!match) return
 
   // Trigger a transformation!
-  await transform()
+  await transform(transformType.Modifier)
 }
 
 // Testing without having to buy Twitch rewards

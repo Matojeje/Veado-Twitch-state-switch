@@ -17,6 +17,7 @@
     "dotenv": "^16.4.5",
     "isomorphic-ws": "^5.0.0",
     "tmi.js": "^1.8.5",
+    "weighted-rng": "^2.0.3",
     "ws": "^8.18.0"
   }
 }
